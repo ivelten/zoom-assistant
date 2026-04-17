@@ -95,14 +95,11 @@ Exactly one positional arg: the root path. Exit non-zero on missing path.
 ### Behavior (notes-ocr)
 
 1. Walk the given path recursively. Any directory containing one or more image files (`.png`, `.jpg`, `.jpeg`, case-insensitive) directly is a "note folder" and gets its own `notes/notes.md`. No merging across folders — subdirectories are walked independently and may become note folders themselves. Sibling folders are walked in sorted-name order; images within a folder are filename-sorted.
-2. For each note folder, create a `notes/` subfolder containing:
-   - `notes.md` — append-only; sections written in filename-sorted order for determinism.
-   - `assets/<image-basename>-crop-<n>.png` — sub-image crops Gemini identified as embedded figures inside the source. Re-runs **overwrite** existing crops so output is reproducible.
+2. For each note folder, create a `notes/` subfolder containing `notes.md` — append-only; sections written in filename-sorted order for determinism.
 3. For each source image, one Gemini `generate_content` call asks for a structured response:
-   - Title (largest-font text → `#`).
    - Section headings detected by typographic hierarchy / column / card boxes → `##` / `###`.
    - Body text in natural reading order (handles multi-column layouts).
-   - Bounding boxes for non-textual regions (photos, diagrams, logos) in normalized `[0,1]` coords, which the app crops locally with Pillow.
+   - Any text embedded inside figures/diagrams is transcribed into the surrounding section; the figures themselves are not cropped or emitted separately.
 4. In `notes.md`, each source image gets a section starting with `---`, then an ATX `#` heading with the original filename, then an italic line containing the image file's mtime in ISO-8601 with timezone (so re-runs don't re-stamp old notes with the current run's date). No YAML frontmatter. Per-image layout: `---` / `# <filename>` / `*<mtime>*` / Gemini headings (`##`/`###`) and polished body / asset links for any cropped figures.
 5. **Append-only**. `notes.md` is opened in append mode; each run adds new sections at the end. No backup files. Re-running over the same folder produces duplicate sections by design — the user controls when to clear `notes.md`.
 6. **Polish pass** (when `GEMINI_POLISH=1`, default). After OCR returns structured content for an image, the *body prose* of each section is sent through the shared [Polish pass](#polish-pass) to add punctuation and paragraph breaks without altering wording. Titles and headings bypass the polish step (they're short, already structured). If the polished output fails the word-count guardrail, keep the raw text and log a warning.
@@ -307,4 +304,4 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 - **`notes-ocr` output format**: ATX headings, no YAML frontmatter; `notes.md` is **append-only** (no `.bak`). Per-image section: `---` / `# <original-filename>` / `*<image-mtime ISO-8601 with tz>*` / Gemini headings + polished body / asset links.
 - **`notes-ocr` walker**: every directory containing image files directly becomes its own note folder with its own `notes.md`. No cross-folder merging; subdirectories are walked independently. Sibling folders walked in sorted-name order; images within a folder filename-sorted.
 - **`notes-ocr` concurrency**: `--jobs N` CLI flag, default `min(8, os.cpu_count() or 1)`. Folders processed sequentially; images parallel within a folder (rate-limit friendly).
-- **`notes-ocr` asset crops**: re-runs **overwrite** existing `assets/*-crop-*.png` files for deterministic output.
+- **`notes-ocr` scope**: text-only OCR for now. Figures embedded in images have their text transcribed into the surrounding section but are not cropped out or linked as assets.

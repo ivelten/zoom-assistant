@@ -28,17 +28,10 @@ class Section:
 
 
 @dataclass(frozen=True, slots=True)
-class FigureLink:
-    caption: str
-    relative_path: str
-
-
-@dataclass(frozen=True, slots=True)
 class ImageNote:
     filename: str
     taken_at: datetime
     sections: Sequence[Section]
-    figures: Sequence[FigureLink]
 
     def __post_init__(self) -> None:
         if self.taken_at.tzinfo is None:
@@ -51,7 +44,6 @@ def render_image_note(note: ImageNote) -> str:
         f"# {note.filename}",
         f"*{note.taken_at.isoformat()}*",
         *_render_sections(note.sections),
-        *_render_figures(note.figures),
     ]
     return "\n\n".join(block for block in blocks if block) + "\n\n"
 
@@ -71,8 +63,3 @@ def _render_section(section: Section) -> str:
     if body:
         parts.append(body)
     return "\n\n".join(parts)
-
-
-def _render_figures(figures: Sequence[FigureLink]) -> Iterator[str]:
-    for figure in figures:
-        yield f"![{figure.caption}]({figure.relative_path})"

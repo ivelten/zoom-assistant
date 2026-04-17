@@ -5,12 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from zoom_assistant.notes_ocr.schema import (
-    OCR_PROMPT,
-    OcrFigure,
-    OcrResponse,
-    OcrSection,
-)
+from zoom_assistant.notes_ocr.schema import OCR_PROMPT, OcrResponse, OcrSection
 
 
 class TestOcrSection:
@@ -38,40 +33,16 @@ class TestOcrSection:
             OcrSection(heading="x", heading_level=level, body="")
 
 
-class TestOcrFigure:
-    def test_full_image_box(self) -> None:
-        OcrFigure(x0=0.0, y0=0.0, x1=1.0, y1=1.0)
-
-    def test_caption_optional(self) -> None:
-        figure = OcrFigure(x0=0.0, y0=0.0, x1=1.0, y1=1.0)
-        assert figure.caption is None
-
-    def test_degenerate_x_rejected(self) -> None:
-        with pytest.raises(ValidationError):
-            OcrFigure(x0=0.5, y0=0.0, x1=0.5, y1=1.0)
-
-    def test_degenerate_y_rejected(self) -> None:
-        with pytest.raises(ValidationError):
-            OcrFigure(x0=0.0, y0=0.5, x1=1.0, y1=0.5)
-
-    def test_out_of_range_rejected(self) -> None:
-        with pytest.raises(ValidationError):
-            OcrFigure(x0=-0.1, y0=0.0, x1=1.0, y1=1.0)
-
-
 class TestOcrResponse:
     def test_parses_from_json(self) -> None:
-        json_str = '{"sections": [{"body": "hi"}], "figures": []}'
+        json_str = '{"sections": [{"body": "hi"}]}'
         response = OcrResponse.model_validate_json(json_str)
         assert response.sections[0].body == "hi"
-        assert response.figures == []
 
     def test_defaults_empty(self) -> None:
         response = OcrResponse()
         assert response.sections == []
-        assert response.figures == []
 
 
 def test_ocr_prompt_mentions_schema_fields() -> None:
     assert "sections" in OCR_PROMPT
-    assert "figures" in OCR_PROMPT

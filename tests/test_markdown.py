@@ -6,13 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from zoom_assistant.markdown import (
-    FigureLink,
-    Heading,
-    ImageNote,
-    Section,
-    render_image_note,
-)
+from zoom_assistant.markdown import Heading, ImageNote, Section, render_image_note
 
 
 def _fixed_time() -> datetime:
@@ -41,22 +35,16 @@ def test_timezone_aware_required() -> None:
             filename="a.png",
             taken_at=datetime(2026, 1, 1, 12, 0),
             sections=(),
-            figures=(),
         )
 
 
 def test_minimal_note_renders_header_only() -> None:
-    note = ImageNote(
-        filename="IMG.png",
-        taken_at=_fixed_time(),
-        sections=(),
-        figures=(),
-    )
+    note = ImageNote(filename="IMG.png", taken_at=_fixed_time(), sections=())
     output = render_image_note(note)
     assert output == "---\n\n# IMG.png\n\n*2026-04-17T14:32:00+00:00*\n\n"
 
 
-def test_full_note_renders_sections_and_figures() -> None:
+def test_full_note_renders_sections() -> None:
     note = ImageNote(
         filename="IMG.png",
         taken_at=_fixed_time(),
@@ -64,13 +52,11 @@ def test_full_note_renders_sections_and_figures() -> None:
             Section(heading=Heading(2, "Intro"), body="Body here."),
             Section(heading=Heading(3, "Detail"), body="More text."),
         ),
-        figures=(FigureLink(caption="Diagram", relative_path="assets/IMG-crop-1.png"),),
     )
     output = render_image_note(note)
     assert output.startswith("---\n\n# IMG.png\n\n*2026-04-17T14:32:00+00:00*\n\n")
     assert "## Intro\n\nBody here." in output
     assert "### Detail\n\nMore text." in output
-    assert "![Diagram](assets/IMG-crop-1.png)" in output
     assert output.endswith("\n\n")
 
 
@@ -79,7 +65,6 @@ def test_section_with_heading_no_body() -> None:
         filename="a.png",
         taken_at=_fixed_time(),
         sections=(Section(heading=Heading(2, "Only heading"), body=""),),
-        figures=(),
     )
     output = render_image_note(note)
     assert "## Only heading" in output
@@ -90,7 +75,6 @@ def test_section_with_body_no_heading() -> None:
         filename="a.png",
         taken_at=_fixed_time(),
         sections=(Section(heading=None, body="just prose"),),
-        figures=(),
     )
     output = render_image_note(note)
     assert "just prose" in output
@@ -102,18 +86,13 @@ def test_empty_section_dropped_without_extra_blank_lines() -> None:
         filename="a.png",
         taken_at=_fixed_time(),
         sections=(Section(heading=None, body="   "),),
-        figures=(),
     )
     output = render_image_note(note)
     assert "\n\n\n" not in output
 
 
 def test_two_renders_concatenate_with_blank_line_between() -> None:
-    first = render_image_note(
-        ImageNote(filename="1.png", taken_at=_fixed_time(), sections=(), figures=())
-    )
-    second = render_image_note(
-        ImageNote(filename="2.png", taken_at=_fixed_time(), sections=(), figures=())
-    )
+    first = render_image_note(ImageNote(filename="1.png", taken_at=_fixed_time(), sections=()))
+    second = render_image_note(ImageNote(filename="2.png", taken_at=_fixed_time(), sections=()))
     combined = first + second
     assert "\n\n---\n\n# 2.png" in combined
