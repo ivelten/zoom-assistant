@@ -1,0 +1,71 @@
+# Python bytecode / build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+sdist/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# uv / virtualenv
+.venv/
+venv/
+env/
+ENV/
+
+# Test / type / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+
+# direnv / secrets — see .envrc.example for the template
+.envrc
+.env
+.env.*
+!.envrc.example
+!.env.example
+
+# Claude Code local overrides (machine-specific permissions, etc.)
+.claude/settings.local.json
+
+# IDEs / editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Local zoom-notes / notes-ocr run artifacts (when invoked inside the repo)
+*.wav
+screen-*.png
+meeting-notes.md
+meeting-notes.md.bak
+notes.md.bak
+
+# Jupyter
+.ipynb_checkpoints/
