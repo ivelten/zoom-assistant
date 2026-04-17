@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from click.testing import CliRunner
+from PIL import Image
 
 from zoom_assistant import cli
 from zoom_assistant.cli import notes_ocr_main
@@ -19,9 +20,11 @@ def runner() -> CliRunner:
 
 
 @pytest.fixture
-def note_folder(tmp_path: Path) -> Path:
-    (tmp_path / "a.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
-    return tmp_path
+def folder_with_image(tmp_path: Path) -> Path:
+    folder = tmp_path / "Aula 04"
+    folder.mkdir()
+    Image.new("RGB", (40, 40), color=(255, 0, 0)).save(folder / "a.png")
+    return folder
 
 
 @pytest.fixture
@@ -30,8 +33,11 @@ def mocks(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     gc_mock = MagicMock(name="GeminiClient")
     pf_calls: list[dict[str, Any]] = []
 
-    def record_call(*args: Any, **kwargs: Any) -> None:
+    def record_call(*args: Any, **kwargs: Any) -> Path:
         pf_calls.append({"args": args, "kwargs": kwargs})
+        # process_folder returns the output path; simulate that.
+        folder: Path = args[0] if args else kwargs["folder"]
+        return folder / f"{folder.name}.md"
 
     monkeypatch.setattr(cli, "GeminiClient", gc_mock)
     monkeypatch.setattr(cli, "process_folder", record_call)
@@ -49,9 +55,9 @@ class TestPathValidation:
         assert result.exit_code != 0
 
     def test_file_instead_of_directory_rejected(self, runner: CliRunner, tmp_path: Path) -> None:
-        file = tmp_path / "a.txt"
-        file.write_text("hi")
-        result = runner.invoke(notes_ocr_main, [str(file)])
+        f = tmp_path / "a.txt"
+        f.write_text("hi")
+        result = runner.invoke(notes_ocr_main, [str(f)])
         assert result.exit_code != 0
 
 
@@ -59,10 +65,10 @@ class TestDryRun:
     def test_does_not_construct_clients_or_process(
         self,
         runner: CliRunner,
-        note_folder: Path,
+        folder_with_image: Path,
         mocks: dict[str, Any],
     ) -> None:
-        result = runner.invoke(notes_ocr_main, [str(note_folder), "--dry-run"])
+        result = runner.invoke(notes_ocr_main, [str(folder_with_image), "--dry-run"])
         assert result.exit_code == 0
         assert mocks["GeminiClient"].call_count == 0
         assert mocks["process_folder_calls"] == []
@@ -70,13 +76,13 @@ class TestDryRun:
     def test_dry_run_does_not_require_env_vars(
         self,
         runner: CliRunner,
-        note_folder: Path,
+        folder_with_image: Path,
         mocks: dict[str, Any],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.delenv("NOTES_OCR_GEMINI_API_KEY", raising=False)
         monkeypatch.delenv("POLISH_GEMINI_API_KEY", raising=False)
-        result = runner.invoke(notes_ocr_main, [str(note_folder), "--dry-run"])
+        result = runner.invoke(notes_ocr_main, [str(folder_with_image), "--dry-run"])
         assert result.exit_code == 0
 
 
@@ -84,69 +90,57 @@ class TestConfigErrors:
     def test_missing_api_key_exits_with_error(
         self,
         runner: CliRunner,
-        note_folder: Path,
+        folder_with_image: Path,
         mocks: dict[str, Any],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.delenv("NOTES_OCR_GEMINI_API_KEY", raising=False)
         monkeypatch.delenv("POLISH_GEMINI_API_KEY", raising=False)
-        result = runner.invoke(notes_ocr_main, [str(note_folder)])
+        result = runner.invoke(notes_ocr_main, [str(folder_with_image)])
         assert result.exit_code != 0
         assert mocks["process_folder_calls"] == []
 
 
 class TestHappyPath:
-    def test_calls_process_folder_once_per_note_folder(
+    def test_calls_process_folder_with_polish_client(
         self,
         runner: CliRunner,
-        note_folder: Path,
+        folder_with_image: Path,
         mocks: dict[str, Any],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _set_keys(monkeypatch)
-        result = runner.invoke(notes_ocr_main, [str(note_folder)])
+        result = runner.invoke(notes_ocr_main, [str(folder_with_image)])
         assert result.exit_code == 0
         assert len(mocks["process_folder_calls"]) == 1
         kwargs = mocks["process_folder_calls"][0]["kwargs"]
         assert kwargs["polish_client"] is not None
-        assert "ocr_client" in kwargs
+        assert kwargs["single_request"] is False
 
     def test_constructs_two_clients_when_polish_enabled(
         self,
         runner: CliRunner,
-        note_folder: Path,
+        folder_with_image: Path,
         mocks: dict[str, Any],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _set_keys(monkeypatch)
-        result = runner.invoke(notes_ocr_main, [str(note_folder)])
+        result = runner.invoke(notes_ocr_main, [str(folder_with_image)])
         assert result.exit_code == 0
         assert mocks["GeminiClient"].call_count == 2
-
-    def test_empty_root_warns_and_exits_clean(
-        self,
-        runner: CliRunner,
-        tmp_path: Path,
-        mocks: dict[str, Any],
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        _set_keys(monkeypatch)
-        result = runner.invoke(notes_ocr_main, [str(tmp_path)])
-        assert result.exit_code == 0
-        assert mocks["process_folder_calls"] == []
 
 
 class TestNoPolish:
     def test_polish_client_is_none(
         self,
         runner: CliRunner,
-        note_folder: Path,
+        folder_with_image: Path,
         mocks: dict[str, Any],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setenv("NOTES_OCR_GEMINI_API_KEY", "ocr-key")
         monkeypatch.delenv("POLISH_GEMINI_API_KEY", raising=False)
-        result = runner.invoke(notes_ocr_main, [str(note_folder), "--no-polish"])
+        result = runner.invoke(notes_ocr_main, [str(folder_with_image), "--no-polish"])
         assert result.exit_code == 0
         kwargs = mocks["process_folder_calls"][0]["kwargs"]
         assert kwargs["polish_client"] is None
@@ -154,43 +148,38 @@ class TestNoPolish:
     def test_only_one_gemini_client_constructed(
         self,
         runner: CliRunner,
-        note_folder: Path,
+        folder_with_image: Path,
         mocks: dict[str, Any],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setenv("NOTES_OCR_GEMINI_API_KEY", "ocr-key")
         monkeypatch.delenv("POLISH_GEMINI_API_KEY", raising=False)
-        result = runner.invoke(notes_ocr_main, [str(note_folder), "--no-polish"])
+        result = runner.invoke(notes_ocr_main, [str(folder_with_image), "--no-polish"])
         assert result.exit_code == 0
         assert mocks["GeminiClient"].call_count == 1
 
 
-class TestJobsFlag:
-    def test_explicit_jobs_forwarded(
+class TestSingleRequestFlag:
+    def test_flag_forwarded(
         self,
         runner: CliRunner,
-        note_folder: Path,
+        folder_with_image: Path,
         mocks: dict[str, Any],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _set_keys(monkeypatch)
-        result = runner.invoke(notes_ocr_main, [str(note_folder), "--jobs", "3"])
+        result = runner.invoke(notes_ocr_main, [str(folder_with_image), "--single-request"])
         assert result.exit_code == 0
-        assert mocks["process_folder_calls"][0]["kwargs"]["jobs"] == 3
+        assert mocks["process_folder_calls"][0]["kwargs"]["single_request"] is True
 
-    def test_default_jobs_within_expected_range(
+    def test_short_form(
         self,
         runner: CliRunner,
-        note_folder: Path,
+        folder_with_image: Path,
         mocks: dict[str, Any],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _set_keys(monkeypatch)
-        result = runner.invoke(notes_ocr_main, [str(note_folder)])
+        result = runner.invoke(notes_ocr_main, [str(folder_with_image), "-s"])
         assert result.exit_code == 0
-        jobs = mocks["process_folder_calls"][0]["kwargs"]["jobs"]
-        assert 1 <= jobs <= 8
-
-    def test_zero_jobs_rejected(self, runner: CliRunner, note_folder: Path) -> None:
-        result = runner.invoke(notes_ocr_main, [str(note_folder), "--jobs", "0"])
-        assert result.exit_code != 0
+        assert mocks["process_folder_calls"][0]["kwargs"]["single_request"] is True

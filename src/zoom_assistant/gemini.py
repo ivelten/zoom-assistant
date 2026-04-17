@@ -42,6 +42,8 @@ _POLISH_INSTRUCTIONS = (
     "- Do NOT add, remove, replace, or rephrase any word.\n"
     "- Preserve all numbers, proper nouns, technical terms, abbreviations, and\n"
     "  domain-specific vocabulary exactly as given.\n"
+    "- Preserve all markdown markers (#, ##, ###, etc.) and structural\n"
+    "  characters exactly as given; do not add, remove, or alter them.\n"
     "- Do NOT add headings, commentary, or any content of your own.\n"
     "- Do NOT fix grammar if doing so would change any word.\n"
     "- Output only the reformatted text, nothing else.\n"

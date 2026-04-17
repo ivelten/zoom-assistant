@@ -71,8 +71,7 @@ uv sync                                    # installs runtime + dev deps into .v
 │       ├── notes_ocr/             # executable 1 internals
 │       │   ├── __init__.py
 │       │   ├── schema.py          # Pydantic OcrResponse + OCR prompt
-│       │   ├── walker.py          # directory traversal
-│       │   └── pipeline.py        # OCR → crop → emit
+│       │   └── pipeline.py        # list folder images → OCR → polish → emit
 │       └── zoom_notes/            # executable 2 internals
 │           ├── __init__.py
 │           ├── audio.py           # sounddevice capture + WAV chunking
@@ -87,26 +86,25 @@ uv sync                                    # installs runtime + dev deps into .v
 ### Usage (notes-ocr)
 
 ```bash
-notes-ocr /absolute/path/to/images
+notes-ocr [-s|--single-request] [--no-polish] [--dry-run] [-v|--verbose] /absolute/path/to/folder
 ```
 
-Exactly one positional arg: the root path. Exit non-zero on missing path.
+Exactly one positional arg: a folder containing the images for one note unit (e.g. one class, one meeting). Exit non-zero on missing path.
 
 ### Behavior (notes-ocr)
 
-1. Walk the given path recursively. Any directory containing one or more image files (`.png`, `.jpg`, `.jpeg`, case-insensitive) directly is a "note folder" and gets its own `notes/notes.md`. No merging across folders — subdirectories are walked independently and may become note folders themselves. Sibling folders are walked in sorted-name order; images within a folder are filename-sorted.
-2. For each note folder, create a `notes/` subfolder containing `notes.md` — append-only; sections written in filename-sorted order for determinism.
-3. For each source image, one Gemini `generate_content` call asks for a structured response:
-   - Section headings detected by typographic hierarchy / column / card boxes → `##` / `###`.
-   - Body text in natural reading order (handles multi-column layouts).
-   - Any text embedded inside figures/diagrams is transcribed into the surrounding section; the figures themselves are not cropped or emitted separately.
-4. In `notes.md`, each source image gets a section starting with `---`, then an ATX `#` heading with the original filename, then an italic line containing the image file's mtime in ISO-8601 with timezone (so re-runs don't re-stamp old notes with the current run's date). No YAML frontmatter. Per-image layout: `---` / `# <filename>` / `*<mtime>*` / Gemini headings (`##`/`###`) and polished body / asset links for any cropped figures.
-5. **Append-only**. `notes.md` is opened in append mode; each run adds new sections at the end. No backup files. Re-running over the same folder produces duplicate sections by design — the user controls when to clear `notes.md`.
-6. **Polish pass** (when `GEMINI_POLISH=1`, default). After OCR returns structured content for an image, the *body prose* of each section is sent through the shared [Polish pass](#polish-pass) to add punctuation and paragraph breaks without altering wording. Titles and headings bypass the polish step (they're short, already structured). If the polished output fails the word-count guardrail, keep the raw text and log a warning.
+1. **One folder per call, no recursion.** The tool processes only the image files directly inside the given folder (`.png`, `.jpg`, `.jpeg`, case-insensitive). Subdirectories, dotfiles, and non-image files are ignored entirely.
+2. **Image order**: by file creation timestamp (`st_birthtime` where the OS exposes it, falling back to `st_mtime`), oldest first.
+3. **One Gemini OCR call per request, batched smartly**:
+   - **Default (multi-image batches)**: pack as many image `Part`s as fit under ~15 MB of accumulated request payload into one `generate_content` call. Multiple calls if the folder doesn't fit in one. Gemini returns a flat `OcrResponse.sections` list per call; the pipeline concatenates them.
+   - **`-s` / `--single-request`**: Pillow-stitch every image vertically into one tall PNG (narrower images centered on a white background) and send one `generate_content` call. Use when you want to minimize request count at the cost of any per-image structural hints in the OCR response.
+4. **Output**: a single `<folder>/<folder-name>.md` (e.g. `Grego I - Aula 04/Grego I - Aula 04.md`). The file is **overwritten** each run — every invocation produces complete content, so re-running is idempotent.
+5. **Markdown layout**: `# <folder name>` as the top heading, followed by Gemini-detected sections — each `##` / `###` heading (when present) plus its polished body. No timestamp line, no `---` separators. Empty sections are dropped.
+6. **Polish pass** (when `GEMINI_POLISH=1`, default): after every OCR call has returned, the rendered markdown body is sent through the shared [Polish pass](#polish-pass) **once** — one polish call per run. The polish prompt instructs Gemini to preserve all markdown markers (`#`, `##`, `###`, etc.) and just add punctuation / paragraph breaks. The ≤2% word-count guardrail still applies; on violation, the raw rendered markdown is kept and a warning is logged.
 
 ### Gemini model
 
-Use the `GEMINI_MODELS` chain (default `gemini-2.5-flash,gemini-2.0-flash`); the wrapper iterates the chain on retryable failures. **JSON-schema validation failure** is handled in two steps: retry once on the *same* model with a stricter "JSON only, conform exactly to this schema" prompt; if that retry also fails to validate, fall through to the next model in the chain. No separate `2.5-pro` escalation path.
+Use the `NOTES_OCR_GEMINI_MODELS` chain for OCR calls and `POLISH_GEMINI_MODELS` for the polish call; the wrapper iterates each chain on retryable failures. **JSON-schema validation failure** on an OCR call is handled in two steps: retry once on the *same* model with a stricter "JSON only, conform exactly to this schema" prompt; if that retry also fails to validate, fall through to the next model in the chain.
 
 ### Gemini call shape
 
@@ -114,11 +112,13 @@ Use the `GEMINI_MODELS` chain (default `gemini-2.5-flash,gemini-2.0-flash`); the
 from google import genai
 from google.genai import types
 
-client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+client = genai.Client(api_key=os.environ["NOTES_OCR_GEMINI_API_KEY"])
 response = client.models.generate_content(
     model="gemini-2.5-flash",
     contents=[
-        types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+        types.Part.from_bytes(data=image_bytes_1, mime_type="image/png"),
+        types.Part.from_bytes(data=image_bytes_2, mime_type="image/png"),
+        # ... more image parts up to the size budget
         PROMPT,
     ],
     config=types.GenerateContentConfig(
@@ -301,7 +301,8 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 - **Model fallback semantics**: comma-separated priority list; auth / rate-limit / server / network failures fall through, 400s hard-fail. Covers token/quota expiry mid-session. Applies to all three `*_GEMINI_MODELS` vars.
 - **Schema-validation failures** in OCR calls: retry once on the *same* model with a stricter prompt; if still invalid, fall through to the next model in the chain. No separate `2.5-pro` escalation path.
 - **Polish pass** (`GEMINI_POLISH=1` by default): every OCR body and every transcript chunk is reformatted by a strict "punctuation and paragraphs only" Gemini prompt with a ≤2% word-count guardrail; content is never changed.
-- **`notes-ocr` output format**: ATX headings, no YAML frontmatter; `notes.md` is **append-only** (no `.bak`). Per-image section: `---` / `# <original-filename>` / `*<image-mtime ISO-8601 with tz>*` / Gemini headings + polished body / asset links.
-- **`notes-ocr` walker**: every directory containing image files directly becomes its own note folder with its own `notes.md`. No cross-folder merging; subdirectories are walked independently. Sibling folders walked in sorted-name order; images within a folder filename-sorted.
-- **`notes-ocr` concurrency**: `--jobs N` CLI flag, default `min(8, os.cpu_count() or 1)`. Folders processed sequentially; images parallel within a folder (rate-limit friendly).
-- **`notes-ocr` scope**: text-only OCR for now. Figures embedded in images have their text transcribed into the surrounding section but are not cropped out or linked as assets.
+- **`notes-ocr` shape**: one folder per invocation, no recursion. Output is a single `<folder>/<folder-name>.md` overwritten each run. Markdown layout is `# <folder name>` followed by Gemini's `##`/`###` sections + polished bodies. ATX headings, no YAML frontmatter, no per-image `---` separators.
+- **`notes-ocr` image order**: by `st_birthtime` ascending (file creation date), with `st_mtime` as fallback on filesystems that don't store birthtime.
+- **`notes-ocr` request batching**: default packs as many image `Part`s as fit under ~15 MB per `generate_content` call (one folder may take several calls if it's large). `-s/--single-request` Pillow-stitches every image vertically into one tall PNG and sends a single OCR call — the request-frugal mode for tight free-tier quotas.
+- **`notes-ocr` polish**: one polish call per run, after all OCR calls have returned. The full rendered markdown body is sent through the polish prompt (which also requires preserving markdown markers verbatim); the ≤2% word-count guardrail still applies.
+- **`notes-ocr` scope**: text-only OCR. Figures embedded in images have their text transcribed into the surrounding section but are not cropped out or linked as assets.

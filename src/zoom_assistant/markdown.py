@@ -1,14 +1,14 @@
-"""Markdown emitter for per-image notes-ocr sections.
+"""Markdown emitter for per-folder notes-ocr output.
 
-Each call to `render_image_note` produces a self-contained block ending in a
-blank line, safe to append to `notes.md` without extra glue.
+`render_folder_note` produces the full text body of a `<folder-name>.md`
+file: a single `# <folder name>` heading followed by the OCR sections
+returned by Gemini.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
-from datetime import datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,24 +28,14 @@ class Section:
 
 
 @dataclass(frozen=True, slots=True)
-class ImageNote:
-    filename: str
-    taken_at: datetime
+class FolderNote:
+    title: str
     sections: Sequence[Section]
 
-    def __post_init__(self) -> None:
-        if self.taken_at.tzinfo is None:
-            raise ValueError("taken_at must be timezone-aware")
 
-
-def render_image_note(note: ImageNote) -> str:
-    blocks = [
-        "---",
-        f"# {note.filename}",
-        f"*{note.taken_at.isoformat()}*",
-        *_render_sections(note.sections),
-    ]
-    return "\n\n".join(block for block in blocks if block) + "\n\n"
+def render_folder_note(note: FolderNote) -> str:
+    blocks = [f"# {note.title}", *_render_sections(note.sections)]
+    return "\n\n".join(block for block in blocks if block) + "\n"
 
 
 def _render_sections(sections: Sequence[Section]) -> Iterator[str]:

@@ -13,22 +13,20 @@ from rich.logging import RichHandler
 from zoom_assistant.config import Config, ConfigError
 from zoom_assistant.gemini import GeminiClient
 from zoom_assistant.notes_ocr.pipeline import process_folder
-from zoom_assistant.notes_ocr.walker import walk_note_folders
 
 logger = logging.getLogger(__name__)
 
 
 @click.command(name="notes-ocr")
 @click.argument(
-    "path",
+    "folder",
     type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
 )
 @click.option(
-    "-j",
-    "--jobs",
-    type=click.IntRange(min=1),
-    default=None,
-    help="Images to OCR in parallel per folder. Defaults to min(8, cpu count).",
+    "-s",
+    "--single-request",
+    is_flag=True,
+    help="Stitch all images into one tall PNG and send a single OCR request.",
 )
 @click.option(
     "--no-polish",
@@ -38,7 +36,7 @@ logger = logging.getLogger(__name__)
 @click.option(
     "--dry-run",
     is_flag=True,
-    help="Walk PATH and log what would happen without calling Gemini or writing files.",
+    help="List the images that would be OCR'd without calling Gemini or writing files.",
 )
 @click.option(
     "-v",
@@ -47,40 +45,35 @@ logger = logging.getLogger(__name__)
     help="Enable DEBUG-level logging.",
 )
 def notes_ocr_main(
-    path: Path,
-    jobs: int | None,
+    folder: Path,
+    single_request: bool,
     no_polish: bool,
     dry_run: bool,
     verbose: bool,
 ) -> None:
-    """Walk PATH for image folders and emit per-folder Markdown notes."""
+    """OCR every image in FOLDER and write FOLDER/<folder-name>.md.
+
+    Images directly inside FOLDER (not subfolders) are processed in
+    creation-time order. By default, images are sent to Gemini in
+    multi-image batches up to ~15 MB per request; --single-request
+    stitches them all into one tall PNG and sends a single request.
+    """
     _configure_logging(verbose=verbose)
     if dry_run:
-        _run_dry(path)
+        _run_dry(folder)
         return
 
-    resolved_jobs = jobs if jobs is not None else _default_jobs()
     config = _load_config(no_polish=no_polish)
     ocr_client = GeminiClient(api_key=config.primary_api_key, models=config.primary_models)
     polish_client = _build_polish_client(config)
 
-    folders = list(walk_note_folders(path))
-    if not folders:
-        logger.warning("no note folders found under %s", path)
-        return
-    for folder in folders:
-        logger.info(
-            "processing %s (%d images, jobs=%d)",
-            folder.path,
-            len(folder.images),
-            resolved_jobs,
-        )
-        process_folder(
-            folder,
-            ocr_client=ocr_client,
-            polish_client=polish_client,
-            jobs=resolved_jobs,
-        )
+    output_path = process_folder(
+        folder,
+        ocr_client=ocr_client,
+        polish_client=polish_client,
+        single_request=single_request,
+    )
+    logger.info("wrote %s", output_path)
 
 
 @click.command(name="zoom-notes")
@@ -106,10 +99,6 @@ def _configure_logging(*, verbose: bool) -> None:
     )
 
 
-def _default_jobs() -> int:
-    return min(8, os.cpu_count() or 1)
-
-
 def _load_config(*, no_polish: bool) -> Config:
     env: Mapping[str, str] = {**os.environ, "GEMINI_POLISH": "0"} if no_polish else os.environ
     try:
@@ -125,12 +114,18 @@ def _build_polish_client(config: Config) -> GeminiClient | None:
     return GeminiClient(api_key=config.polish_api_key, models=config.polish_models)
 
 
-def _run_dry(path: Path) -> None:
-    folders = list(walk_note_folders(path))
-    if not folders:
-        logger.info("no note folders found under %s", path)
+def _run_dry(folder: Path) -> None:
+    from zoom_assistant.notes_ocr.pipeline import list_folder_images
+
+    images = list_folder_images(folder)
+    if not images:
+        logger.warning("no images found in %s", folder)
         return
-    for folder in folders:
-        logger.info("would process %s (%d images):", folder.path, len(folder.images))
-        for image in folder.images:
-            logger.info("  - %s", image.name)
+    logger.info(
+        "would OCR %d images from %s and write %s",
+        len(images),
+        folder,
+        folder / f"{folder.name}.md",
+    )
+    for image in images:
+        logger.info("  - %s", image.name)
