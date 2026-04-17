@@ -62,6 +62,7 @@ uv sync                                    # installs runtime + dev deps into .v
 │       ├── markdown.py            # Markdown emitters
 │       ├── notes_ocr/             # executable 1 internals
 │       │   ├── __init__.py
+│       │   ├── schema.py          # Pydantic OcrResponse + OCR prompt
 │       │   ├── walker.py          # directory traversal
 │       │   └── pipeline.py        # OCR → crop → emit
 │       └── zoom_notes/            # executable 2 internals
