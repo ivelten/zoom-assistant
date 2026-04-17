@@ -1,0 +1,10 @@
+# Copy to .envrc, fill in GEMINI_API_KEY, then `direnv allow` from this directory.
+# .envrc is gitignored — never commit secrets.
+
+export GEMINI_API_KEY=
+export GEMINI_MODELS=gemini-2.5-flash,gemini-2.0-flash
+export GEMINI_POLISH=1
+
+# Optional: pin specific PortAudio device indices for zoom-notes. Leave unset for auto.
+# export ZOOM_NOTES_MIC_DEVICE=
+# export ZOOM_NOTES_LOOPBACK_DEVICE=

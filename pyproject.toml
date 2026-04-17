@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "zoom-assistant"
+version = "0.1.0"
+description = "AI meeting/notes assistant: image OCR to Markdown and live Zoom meeting transcription via Google Gemini."
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "Ismael Carlos Velten", email = "ismaelcarlosvelten@gmail.com" }]
+dependencies = [
+    "google-genai>=1.0",
+    "pillow>=11.0",
+    "imagehash>=4.3",
+    "sounddevice>=0.5",
+    "soundfile>=0.13",
+    "numpy>=2.0",
+    "mss>=10.0",
+    "psutil>=6.0",
+    "click>=8.1",
+    "rich>=13.0",
+    "pydantic>=2.0",
+]
+
+[project.scripts]
+notes-ocr = "zoom_assistant.cli:notes_ocr_main"
+zoom-notes = "zoom_assistant.cli:zoom_notes_main"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "pytest>=8.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/zoom_assistant"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "SIM",  # simplify
+    "C90",  # mccabe complexity
+    "N",    # pep8-naming
+    "RUF",  # ruff-specific
+    "A",    # builtin shadowing
+    "PTH",  # use pathlib
+    "RET",  # return statements
+    "TID",  # tidy imports
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
