@@ -29,9 +29,9 @@ All knobs are environment variables loaded by direnv from `.envrc`. `src/zoom_as
 | `NOTES_OCR_GEMINI_API_KEY` | iff running `notes-ocr` | — | Auth token for the image OCR calls. |
 | `ZOOM_NOTES_GEMINI_API_KEY` | iff running `zoom-notes` | — | Auth token for the audio transcription calls. |
 | `POLISH_GEMINI_API_KEY` | iff `GEMINI_POLISH=1` | — | Auth token for the shared polish pass (used by both tools). |
-| `NOTES_OCR_GEMINI_MODELS` | no | `gemini-2.5-flash,gemini-2.0-flash,gemini-2.5-flash-lite,gemini-3.1-flash-lite` | Model-fallback chain for image OCR. Quality-first. |
-| `ZOOM_NOTES_GEMINI_MODELS` | no | `gemini-2.5-flash,gemini-2.0-flash,gemini-2.5-flash-lite,gemini-3.1-flash-lite` | Model-fallback chain for audio transcription. Quality-first. |
-| `POLISH_GEMINI_MODELS` | no | `gemini-2.5-flash-lite,gemini-3.1-flash-lite,gemini-2.0-flash,gemini-2.5-flash` | Model-fallback chain for the shared polish pass. Cost-first — polish is text-only and high-volume. |
+| `NOTES_OCR_GEMINI_MODELS` | no | `gemini-2.5-flash,gemini-2.0-flash,gemini-2.5-flash-lite` | Model-fallback chain for image OCR. Quality-first. |
+| `ZOOM_NOTES_GEMINI_MODELS` | no | `gemini-2.5-flash,gemini-2.0-flash,gemini-2.5-flash-lite` | Model-fallback chain for audio transcription. Quality-first. |
+| `POLISH_GEMINI_MODELS` | no | `gemini-2.5-flash-lite,gemini-2.0-flash,gemini-2.5-flash` | Model-fallback chain for the shared polish pass. Cost-first — polish is text-only and high-volume. |
 | `GEMINI_POLISH` | no | `1` | `1` enables the post-OCR / post-transcription polish pass (see each executable and [Polish pass](#polish-pass)). Set to `0` to skip it; `POLISH_GEMINI_API_KEY` / `POLISH_GEMINI_MODELS` then aren't required. |
 | `ZOOM_NOTES_MIC_DEVICE` | no | auto | Optional PortAudio input index for the microphone. |
 | `ZOOM_NOTES_LOOPBACK_DEVICE` | no | auto | Optional PortAudio input index for the system-audio loopback. |
@@ -40,7 +40,7 @@ All knobs are environment variables loaded by direnv from `.envrc`. `src/zoom_as
 
 **Why per-purpose keys and chains?** Each of OCR / transcription / polish is a distinct Gemini usage pattern with different token/quota characteristics. Splitting lets you (a) monitor usage per purpose in the Google Cloud console and (b) tune model quality/cost per purpose — e.g. polish can run on cheaper Lite variants since it's text-only and high-volume, while OCR and transcription default to Flash for quality. `Config.for_notes_ocr()` and `Config.for_zoom_notes()` are tool-scoped factories; each only requires the key + chain relevant to the invoked tool (plus polish when enabled).
 
-**Retryable failures** (fall through to next model): HTTP 401/403 (auth token expired or revoked), 429 (rate limit or quota exhausted), 500/502/503/504 (server), connection errors. **Non-retryable**: HTTP 400 (invalid request — the same payload would fail on every model). Each call starts a fresh traversal of the chain; there is no cooldown timer — the chain's whole purpose is to keep working when one key/model is saturated.
+**Retryable failures** (fall through to next model): HTTP 401/403 (auth expired or revoked), 404 (model not available on this tier — exactly what the chain is for), 429 (rate limit / quota exhausted), 500/502/503/504 (server), connection errors. **Non-retryable**: HTTP 400 (malformed request — the same payload would fail on every model). Each call starts a fresh traversal of the chain; there is no cooldown timer — the chain's whole purpose is to keep working when one key/model is saturated or unavailable.
 
 ### Bootstrap
 

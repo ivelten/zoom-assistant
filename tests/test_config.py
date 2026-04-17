@@ -86,7 +86,7 @@ class TestPrimaryModels:
     def test_notes_ocr_quality_first_default(self) -> None:
         config = Config.for_notes_ocr(_ocr_env())
         assert config.primary_models[0] == "gemini-2.5-flash"
-        assert len(config.primary_models) == 4
+        assert len(config.primary_models) == 3
 
     def test_zoom_notes_quality_first_default(self) -> None:
         config = Config.for_zoom_notes(_zoom_env())
@@ -114,7 +114,7 @@ class TestPolishModels:
         config = Config.for_notes_ocr(_ocr_env())
         assert config.polish_models is not None
         assert config.polish_models[0] == "gemini-2.5-flash-lite"
-        assert len(config.polish_models) == 4
+        assert len(config.polish_models) == 3
 
     def test_override_respected(self) -> None:
         config = Config.for_notes_ocr(_ocr_env(POLISH_GEMINI_MODELS="lite-x,lite-y"))

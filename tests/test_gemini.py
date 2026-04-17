@@ -73,11 +73,11 @@ def _make_client(
 
 
 class TestIsRetryable:
-    @pytest.mark.parametrize("code", [401, 403, 429, 500, 502, 503, 504])
+    @pytest.mark.parametrize("code", [401, 403, 404, 429, 500, 502, 503, 504])
     def test_retryable_status_codes(self, code: int) -> None:
         assert _is_retryable(_StubAPIError(code)) is True
 
-    @pytest.mark.parametrize("code", [400, 404, 410])
+    @pytest.mark.parametrize("code", [400, 410])
     def test_non_retryable_status_codes(self, code: int) -> None:
         assert _is_retryable(_StubAPIError(code)) is False
 

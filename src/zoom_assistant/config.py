@@ -29,12 +29,8 @@ class ConfigError(RuntimeError):
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES = frozenset({"0", "false", "no", "off"})
 
-_DEFAULT_PRIMARY_MODELS = (
-    "gemini-2.5-flash,gemini-2.0-flash,gemini-2.5-flash-lite,gemini-3.1-flash-lite"
-)
-_DEFAULT_POLISH_MODELS = (
-    "gemini-2.5-flash-lite,gemini-3.1-flash-lite,gemini-2.0-flash,gemini-2.5-flash"
-)
+_DEFAULT_PRIMARY_MODELS = "gemini-2.5-flash,gemini-2.0-flash,gemini-2.5-flash-lite"
+_DEFAULT_POLISH_MODELS = "gemini-2.5-flash-lite,gemini-2.0-flash,gemini-2.5-flash"
 
 _NOTES_OCR_KEY_VAR = "NOTES_OCR_GEMINI_API_KEY"
 _ZOOM_NOTES_KEY_VAR = "ZOOM_NOTES_GEMINI_API_KEY"

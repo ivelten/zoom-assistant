@@ -28,7 +28,7 @@ from pydantic import BaseModel, ValidationError
 
 logger = logging.getLogger(__name__)
 
-_RETRYABLE_STATUS_CODES = frozenset({401, 403, 429, 500, 502, 503, 504})
+_RETRYABLE_STATUS_CODES = frozenset({401, 403, 404, 429, 500, 502, 503, 504})
 _POLISH_TOLERANCE = 0.02
 _PUNCT_TRANSLATION = str.maketrans("", "", string.punctuation)
 
