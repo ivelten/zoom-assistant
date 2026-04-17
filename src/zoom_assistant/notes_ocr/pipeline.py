@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -45,23 +47,42 @@ def process_folder(
     *,
     ocr_client: GeminiClient,
     polish_client: GeminiClient | None,
+    jobs: int = 1,
 ) -> None:
     """OCR every image in `folder` and append sections to its notes.md.
 
     `ocr_client` runs the structured OCR call; `polish_client` runs the
     shared polish pass on each section body. Pass `polish_client=None` to
-    skip polishing (e.g. when `GEMINI_POLISH=0`). Creates `notes/` and
-    `notes/assets/` under the folder as needed; notes.md is opened in
-    append mode so repeated runs accumulate sections.
+    skip polishing (e.g. when `GEMINI_POLISH=0`). `jobs` controls
+    image-level parallelism within this folder (rate-limit friendly);
+    images are OCR'd in parallel but markdown is written in folder order
+    for deterministic output. Creates `notes/` and `notes/assets/` under
+    the folder as needed; notes.md is opened in append mode.
     """
     notes_dir = folder.path / _NOTES_DIRNAME
     assets_dir = notes_dir / _ASSETS_DIRNAME
     notes_dir.mkdir(parents=True, exist_ok=True)
     assets_dir.mkdir(parents=True, exist_ok=True)
+    notes = _ocr_all_images(folder.images, assets_dir, ocr_client, polish_client, jobs)
     with (notes_dir / _NOTES_FILENAME).open("a", encoding="utf-8") as fp:
-        for image_path in folder.images:
-            note = _ocr_single_image(image_path, assets_dir, ocr_client, polish_client)
+        for note in notes:
             fp.write(render_image_note(note))
+
+
+def _ocr_all_images(
+    images: Sequence[Path],
+    assets_dir: Path,
+    ocr_client: GeminiClient,
+    polish_client: GeminiClient | None,
+    jobs: int,
+) -> list[ImageNote]:
+    def work(path: Path) -> ImageNote:
+        return _ocr_single_image(path, assets_dir, ocr_client, polish_client)
+
+    if jobs <= 1:
+        return [work(p) for p in images]
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        return list(pool.map(work, images))
 
 
 def _ocr_single_image(
