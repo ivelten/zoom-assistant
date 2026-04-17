@@ -255,7 +255,7 @@ The three per-purpose Gemini keys (`NOTES_OCR_GEMINI_API_KEY`, `ZOOM_NOTES_GEMIN
 ## Git workflow
 
 - **Never commit without asking.** After finishing a discrete task (feature landed, bug fixed, docs section done), proactively flag it as a good commit point and ask the user whether to commit. Never auto-commit, never silently run `git commit`.
-- **Gitmoji prefix** on every commit subject line — use the UTF-8 emoji (not the `:shortcode:` form) as the first character, followed by a space and the short description. Reference: <https://gitmoji.dev/>. Common picks:
+- **Gitmoji prefix** on every commit subject line — use the UTF-8 emoji (not the `:shortcode:` form) as the first character, followed by a space and the short description. **The first letter after the emoji must be uppercase** (e.g. `✨ Add notes-ocr pipeline`, not `✨ add notes-ocr pipeline`) — *except* when the first word is a tool, module, or other identifier whose canonical spelling is lowercase (e.g. `♻️ notes-ocr: switch to per-folder output`, `♻️ walker: drop merge rule`). Don't capitalize tool names just to satisfy the rule. Reference: <https://gitmoji.dev/>. Common picks:
 
   | Emoji | Meaning |
   | --- | --- |
