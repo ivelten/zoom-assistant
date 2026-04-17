@@ -94,9 +94,9 @@ Exactly one positional arg: the root path. Exit non-zero on missing path.
 
 ### Behavior (notes-ocr)
 
-1. Walk the given path recursively. A directory is treated as a "note folder" iff (a) it contains one or more image files (`.png`, `.jpg`, `.jpeg`, case-insensitive) of its own, **or** (b) at least one direct child is an "image-leaf" (a folder with image files and no subdirectories). A promoted note folder owns its own images **plus** all images from every direct image-leaf child — those leaves do **not** get their own `notes/` output. Children with deeper structure recurse independently and may become note folders themselves. Merge order within `notes.md`: by source-folder name, then by filename.
+1. Walk the given path recursively. Any directory containing one or more image files (`.png`, `.jpg`, `.jpeg`, case-insensitive) directly is a "note folder" and gets its own `notes/notes.md`. No merging across folders — subdirectories are walked independently and may become note folders themselves. Sibling folders are walked in sorted-name order; images within a folder are filename-sorted.
 2. For each note folder, create a `notes/` subfolder containing:
-   - `notes.md` — append-only; sections written in the deterministic order from step 1.
+   - `notes.md` — append-only; sections written in filename-sorted order for determinism.
    - `assets/<image-basename>-crop-<n>.png` — sub-image crops Gemini identified as embedded figures inside the source. Re-runs **overwrite** existing crops so output is reproducible.
 3. For each source image, one Gemini `generate_content` call asks for a structured response:
    - Title (largest-font text → `#`).
@@ -305,6 +305,6 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 - **Schema-validation failures** in OCR calls: retry once on the *same* model with a stricter prompt; if still invalid, fall through to the next model in the chain. No separate `2.5-pro` escalation path.
 - **Polish pass** (`GEMINI_POLISH=1` by default): every OCR body and every transcript chunk is reformatted by a strict "punctuation and paragraphs only" Gemini prompt with a ≤2% word-count guardrail; content is never changed.
 - **`notes-ocr` output format**: ATX headings, no YAML frontmatter; `notes.md` is **append-only** (no `.bak`). Per-image section: `---` / `# <original-filename>` / `*<image-mtime ISO-8601 with tz>*` / Gemini headings + polished body / asset links.
-- **`notes-ocr` walker**: image-leaf subdirectories (folders with images and no subdirs) merge into their parent's `notes.md` — they do not get their own. Folders with deeper structure recurse independently. Merge order: by source-folder name, then by filename.
+- **`notes-ocr` walker**: every directory containing image files directly becomes its own note folder with its own `notes.md`. No cross-folder merging; subdirectories are walked independently. Sibling folders walked in sorted-name order; images within a folder filename-sorted.
 - **`notes-ocr` concurrency**: `--jobs N` CLI flag, default `min(8, os.cpu_count() or 1)`. Folders processed sequentially; images parallel within a folder (rate-limit friendly).
 - **`notes-ocr` asset crops**: re-runs **overwrite** existing `assets/*-crop-*.png` files for deterministic output.

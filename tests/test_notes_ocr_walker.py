@@ -28,6 +28,13 @@ class TestFlatFolder:
         assert folders[0].path == tmp_path
         assert _names(folders[0]) == ["a.png"]
 
+    def test_multiple_images_sorted_by_filename(self, tmp_path: Path) -> None:
+        _mkimg(tmp_path / "b.png")
+        _mkimg(tmp_path / "a.png")
+        _mkimg(tmp_path / "c.jpg")
+        folders = list(walk_note_folders(tmp_path))
+        assert _names(folders[0]) == ["a.png", "b.png", "c.jpg"]
+
     def test_case_insensitive_extensions(self, tmp_path: Path) -> None:
         _mkimg(tmp_path / "a.PNG")
         _mkimg(tmp_path / "b.JPG")
@@ -43,59 +50,48 @@ class TestFlatFolder:
         assert _names(folders[0]) == ["a.png"]
 
 
-class TestImageLeafMerge:
-    def test_parent_with_no_own_images_promoted_by_leaf_child(self, tmp_path: Path) -> None:
-        _mkimg(tmp_path / "leaf" / "1.png")
-        _mkimg(tmp_path / "leaf" / "2.png")
-        folders = list(walk_note_folders(tmp_path))
-        assert len(folders) == 1
-        assert folders[0].path == tmp_path
-        assert _names(folders[0]) == ["1.png", "2.png"]
-
-    def test_image_leaf_does_not_get_own_note_folder(self, tmp_path: Path) -> None:
-        _mkimg(tmp_path / "leaf" / "1.png")
-        paths = {f.path for f in walk_note_folders(tmp_path)}
-        assert tmp_path in paths
-        assert tmp_path / "leaf" not in paths
-
-    def test_multiple_leaves_merged(self, tmp_path: Path) -> None:
-        _mkimg(tmp_path / "a" / "x.png")
-        _mkimg(tmp_path / "b" / "y.png")
-        folders = list(walk_note_folders(tmp_path))
-        assert len(folders) == 1
-        assert len(folders[0].images) == 2
-
-
-class TestRecursion:
-    def test_child_with_subdirs_is_not_image_leaf(self, tmp_path: Path) -> None:
-        _mkimg(tmp_path / "sub" / "a.png")
-        _mkimg(tmp_path / "sub" / "deeper" / "b.png")
-        folders = list(walk_note_folders(tmp_path))
-        assert len(folders) == 1
-        assert folders[0].path == tmp_path / "sub"
-        assert len(folders[0].images) == 2
-
-    def test_independent_note_folders_at_different_depths(self, tmp_path: Path) -> None:
-        _mkimg(tmp_path / "A" / "1.png")
-        _mkimg(tmp_path / "B" / "x" / "1.png")
-        _mkimg(tmp_path / "B" / "x" / "2.png")
+class TestPerSubfolderOutput:
+    def test_each_subfolder_gets_its_own_note_folder(self, tmp_path: Path) -> None:
+        _mkimg(tmp_path / "a" / "1.png")
+        _mkimg(tmp_path / "b" / "1.png")
         folders = list(walk_note_folders(tmp_path))
         paths = {f.path for f in folders}
-        assert tmp_path in paths
-        assert tmp_path / "B" in paths
-        assert len(folders) == 2
+        assert paths == {tmp_path / "a", tmp_path / "b"}
+
+    def test_parent_without_own_images_is_not_a_note_folder(self, tmp_path: Path) -> None:
+        _mkimg(tmp_path / "only_in_child" / "x.png")
+        folders = list(walk_note_folders(tmp_path))
+        paths = {f.path for f in folders}
+        assert tmp_path not in paths
+        assert tmp_path / "only_in_child" in paths
+
+    def test_parent_with_own_images_does_not_absorb_subfolder_images(self, tmp_path: Path) -> None:
+        _mkimg(tmp_path / "parent.png")
+        _mkimg(tmp_path / "child" / "sub.png")
+        folders = {f.path: f for f in walk_note_folders(tmp_path)}
+        assert set(folders) == {tmp_path, tmp_path / "child"}
+        assert _names(folders[tmp_path]) == ["parent.png"]
+        assert _names(folders[tmp_path / "child"]) == ["sub.png"]
+
+    def test_deep_nesting_yields_every_image_bearing_folder(self, tmp_path: Path) -> None:
+        _mkimg(tmp_path / "a.png")
+        _mkimg(tmp_path / "sub" / "b.png")
+        _mkimg(tmp_path / "sub" / "deeper" / "c.png")
+        paths = {f.path for f in walk_note_folders(tmp_path)}
+        assert paths == {
+            tmp_path,
+            tmp_path / "sub",
+            tmp_path / "sub" / "deeper",
+        }
 
 
-class TestMergeOrder:
-    def test_sorted_by_parent_then_filename(self, tmp_path: Path) -> None:
-        root = tmp_path / "root"
-        _mkimg(root / "own_z.png")
-        _mkimg(root / "aleaf" / "y.png")
-        _mkimg(root / "aleaf" / "a.png")
-        _mkimg(root / "bleaf" / "b.png")
-        folders = list(walk_note_folders(root))
-        assert len(folders) == 1
-        assert _names(folders[0]) == ["a.png", "y.png", "b.png", "own_z.png"]
+class TestSiblingOrder:
+    def test_sibling_folders_walked_sorted(self, tmp_path: Path) -> None:
+        _mkimg(tmp_path / "z" / "1.png")
+        _mkimg(tmp_path / "a" / "1.png")
+        _mkimg(tmp_path / "m" / "1.png")
+        discovered = [f.path.name for f in walk_note_folders(tmp_path)]
+        assert discovered == ["a", "m", "z"]
 
 
 class TestHiddenFiltering:
