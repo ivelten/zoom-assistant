@@ -85,22 +85,22 @@ Exactly one positional arg: the root path. Exit non-zero on missing path.
 
 ### Behavior (notes-ocr)
 
-1. Walk the given path recursively. Every directory containing one or more image files (`.png`, `.jpg`, `.jpeg`, case-insensitive) is treated as a "note folder".
+1. Walk the given path recursively. A directory is treated as a "note folder" iff (a) it contains one or more image files (`.png`, `.jpg`, `.jpeg`, case-insensitive) of its own, **or** (b) at least one direct child is an "image-leaf" (a folder with image files and no subdirectories). A promoted note folder owns its own images **plus** all images from every direct image-leaf child — those leaves do **not** get their own `notes/` output. Children with deeper structure recurse independently and may become note folders themselves. Merge order within `notes.md`: by source-folder name, then by filename.
 2. For each note folder, create a `notes/` subfolder containing:
-   - `notes.md` — concatenated transcriptions in filename-sorted order for determinism.
-   - `assets/<image-basename>-crop-<n>.png` — sub-image crops Gemini identified as embedded figures inside the source.
+   - `notes.md` — append-only; sections written in the deterministic order from step 1.
+   - `assets/<image-basename>-crop-<n>.png` — sub-image crops Gemini identified as embedded figures inside the source. Re-runs **overwrite** existing crops so output is reproducible.
 3. For each source image, one Gemini `generate_content` call asks for a structured response:
    - Title (largest-font text → `#`).
    - Section headings detected by typographic hierarchy / column / card boxes → `##` / `###`.
    - Body text in natural reading order (handles multi-column layouts).
    - Bounding boxes for non-textual regions (photos, diagrams, logos) in normalized `[0,1]` coords, which the app crops locally with Pillow.
-4. In `notes.md`, each source image gets a section delimited by `---` and a heading with the original filename so output is traceable.
-5. Overwrite policy: by default `notes.md` is overwritten; previous version is saved to `notes.md.bak` once per run. Confirm with user before changing.
+4. In `notes.md`, each source image gets a section starting with `---`, then an ATX `#` heading with the original filename, then an italic line containing the image file's mtime in ISO-8601 with timezone (so re-runs don't re-stamp old notes with the current run's date). No YAML frontmatter. Per-image layout: `---` / `# <filename>` / `*<mtime>*` / Gemini headings (`##`/`###`) and polished body / asset links for any cropped figures.
+5. **Append-only**. `notes.md` is opened in append mode; each run adds new sections at the end. No backup files. Re-running over the same folder produces duplicate sections by design — the user controls when to clear `notes.md`.
 6. **Polish pass** (when `GEMINI_POLISH=1`, default). After OCR returns structured content for an image, the *body prose* of each section is sent through the shared [Polish pass](#polish-pass) to add punctuation and paragraph breaks without altering wording. Titles and headings bypass the polish step (they're short, already structured). If the polished output fails the word-count guardrail, keep the raw text and log a warning.
 
 ### Gemini model
 
-Start with `gemini-2.5-flash` for vision OCR (cost/speed). Fall back to `gemini-2.5-pro` when JSON schema validation fails or the response confidence is low.
+Use the `GEMINI_MODELS` chain (default `gemini-2.5-flash,gemini-2.0-flash`); the wrapper iterates the chain on retryable failures. **JSON-schema validation failure** is handled in two steps: retry once on the *same* model with a stricter "JSON only, conform exactly to this schema" prompt; if that retry also fails to validate, fall through to the next model in the chain. No separate `2.5-pro` escalation path.
 
 ### Gemini call shape
 
@@ -280,11 +280,8 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 
 ## Open questions (user decisions pending)
 
-1. **OCR overwrite policy** for `notes.md`: overwrite-with-backup (default) vs append?
-2. **Output Markdown style**: YAML frontmatter (title/date/source)? House heading style?
-3. **`notes-ocr` concurrency**: default `min(8, os.cpu_count() or 1)`, or expose `--jobs N`?
-4. **`zoom-notes` frame cadence**: 3 s default OK, or slower / faster?
-5. **Transcription prompt wording**: do you want speaker labels at all, or one flat running transcript?
+1. **`zoom-notes` frame cadence**: 3 s default OK, or slower / faster?
+2. **Transcription prompt wording**: do you want speaker labels at all, or one flat running transcript?
 
 ## Settled decisions
 
@@ -295,4 +292,9 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 - Host OS: macOS primary, Windows and Linux supported first-class.
 - Gemini SDK: `google-genai` (the unified replacement for `google-generativeai`).
 - **Model fallback chain** (`GEMINI_MODELS`): comma-separated priority list; auth / rate-limit / server / network failures fall through, 400s hard-fail. Covers token/quota expiry mid-session.
+- **Schema-validation failures** in OCR calls: retry once on the *same* model with a stricter prompt; if still invalid, fall through to the next model in the chain. No separate `2.5-pro` escalation path.
 - **Polish pass** (`GEMINI_POLISH=1` by default): every OCR body and every transcript chunk is reformatted by a strict "punctuation and paragraphs only" Gemini prompt with a ≤2% word-count guardrail; content is never changed.
+- **`notes-ocr` output format**: ATX headings, no YAML frontmatter; `notes.md` is **append-only** (no `.bak`). Per-image section: `---` / `# <original-filename>` / `*<image-mtime ISO-8601 with tz>*` / Gemini headings + polished body / asset links.
+- **`notes-ocr` walker**: image-leaf subdirectories (folders with images and no subdirs) merge into their parent's `notes.md` — they do not get their own. Folders with deeper structure recurse independently. Merge order: by source-folder name, then by filename.
+- **`notes-ocr` concurrency**: `--jobs N` CLI flag, default `min(8, os.cpu_count() or 1)`. Folders processed sequentially; images parallel within a folder (rate-limit friendly).
+- **`notes-ocr` asset crops**: re-runs **overwrite** existing `assets/*-crop-*.png` files for deterministic output.
