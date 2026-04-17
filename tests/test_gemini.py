@@ -9,7 +9,6 @@ import pytest
 from google import genai
 from pydantic import BaseModel
 
-from zoom_assistant.config import Config
 from zoom_assistant.gemini import (
     GeminiClient,
     GeminiUnavailableError,
@@ -62,21 +61,15 @@ class _StubClient:
         self.models = _StubModelsAPI(responses)
 
 
-def _make_config(**overrides: Any) -> Config:
-    return Config(
-        gemini_api_key="test-key",
-        gemini_models=overrides.get("gemini_models", ("m1", "m2", "m3")),
-        gemini_polish=overrides.get("gemini_polish", True),
-        zoom_notes_mic_device=None,
-        zoom_notes_loopback_device=None,
-    )
+_DEFAULT_MODELS: tuple[str, ...] = ("m1", "m2", "m3")
 
 
 def _make_client(
-    responses: Sequence[object], **cfg_overrides: Any
+    responses: Sequence[object], *, models: tuple[str, ...] = _DEFAULT_MODELS
 ) -> tuple[GeminiClient, _StubClient]:
     stub = _StubClient(responses)
-    return GeminiClient(_make_config(**cfg_overrides), client=cast(genai.Client, stub)), stub
+    client = GeminiClient(api_key="test-key", models=models, client=cast(genai.Client, stub))
+    return client, stub
 
 
 class TestIsRetryable:
@@ -146,11 +139,6 @@ class TestSchemaRetry:
 
 
 class TestPolishGuardrail:
-    def test_polish_disabled_returns_raw_unchanged(self) -> None:
-        client, stub = _make_client([], gemini_polish=False)
-        assert client.polish("hello world") == "hello world"
-        assert stub.models.calls == []
-
     def test_polish_empty_short_circuits(self) -> None:
         client, stub = _make_client([])
         assert client.polish("") == ""

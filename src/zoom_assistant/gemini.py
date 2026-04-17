@@ -1,13 +1,16 @@
 """Gemini client wrapper: model-fallback chain, schema-retry, and polish pass.
 
-Every Gemini call in this project goes through `GeminiClient`. It handles:
+Every Gemini call in this project goes through `GeminiClient`. One instance
+per purpose — OCR, transcription, or polish — each constructed with its own
+API key so usage can be monitored per-purpose. It handles:
 
 - Iterating `GEMINI_MODELS` on retryable failures (401/403/429/5xx + transport).
 - Retrying a schema-validated call once on the *same* model with a stricter
   prompt before advancing the chain to the next model.
 - Polishing raw OCR/transcript text through a strict "punctuation and
   paragraphs only" prompt, with a ≤2% word-count guardrail that falls back
-  to the raw text if violated.
+  to the raw text if violated. Whether to polish at all is the caller's
+  decision (pass a polish client, or don't); this class always tries.
 """
 
 from __future__ import annotations
@@ -22,8 +25,6 @@ import httpx
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, ValidationError
-
-from zoom_assistant.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -71,10 +72,15 @@ M = TypeVar("M", bound=BaseModel)
 
 
 class GeminiClient:
-    def __init__(self, config: Config, *, client: genai.Client | None = None) -> None:
-        self._models = config.gemini_models
-        self._polish_enabled = config.gemini_polish
-        self._client = client if client is not None else genai.Client(api_key=config.gemini_api_key)
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        models: Sequence[str],
+        client: genai.Client | None = None,
+    ) -> None:
+        self._models = tuple(models)
+        self._client = client if client is not None else genai.Client(api_key=api_key)
 
     def generate_structured(
         self,
@@ -104,11 +110,11 @@ class GeminiClient:
     def polish(self, text: str) -> str:
         """Reformat `text` with punctuation and paragraphs; never changes words.
 
-        Returns `text` unchanged if polishing is disabled, the input is
-        whitespace-only, the output fails the ≤2% word-count guardrail, or
-        every model in the chain errored.
+        Returns `text` unchanged if the input is whitespace-only, the output
+        fails the ≤2% word-count guardrail, or every model in the chain
+        errored. Whether to call this method at all is the caller's decision.
         """
-        if not self._polish_enabled or not text.strip():
+        if not text.strip():
             return text
         try:
             polished = self._call_with_fallback(lambda m: self._polish_call(m, text))

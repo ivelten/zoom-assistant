@@ -1,8 +1,30 @@
-# Copy to .envrc, fill in GEMINI_API_KEY, then `direnv allow` from this directory.
-# .envrc is gitignored — never commit secrets.
+# Copy to .envrc, fill in the keys for the tool(s) you plan to run, then
+# `direnv allow` from this directory. .envrc is gitignored — never commit secrets.
+#
+# Each Gemini usage pattern gets its own key AND its own model-fallback chain
+# so you can monitor usage and tune quality/cost per purpose. A tool only
+# requires its own primary key; POLISH_GEMINI_API_KEY is additionally required
+# when GEMINI_POLISH=1 (the default) for both tools.
 
-export GEMINI_API_KEY=
-export GEMINI_MODELS=gemini-2.5-flash,gemini-2.0-flash
+export NOTES_OCR_GEMINI_API_KEY=    # image OCR calls in notes-ocr
+export ZOOM_NOTES_GEMINI_API_KEY=   # audio transcription calls in zoom-notes
+export POLISH_GEMINI_API_KEY=       # shared polish pass, both tools
+
+# Model-fallback chains, comma-separated in priority order. Every Gemini call
+# tries the first model; on a retryable failure (401/403/429/5xx/transport),
+# the client falls through to the next. Defaults tuned per purpose:
+#   - primary chains (OCR, transcription): quality-first, start with 2.5-flash
+#   - polish chain: cost-first, start with lite variants (polish is text-only
+#     and high-volume, so the big model isn't needed)
+# Only include models that handle this project's inputs — multimodal for
+# primary chains, text-only for polish. Skip TTS, Computer Use, Robotics,
+# Deep Research, and any model with 0 quota on your tier.
+#
+# Uncomment to override the built-in defaults:
+# export NOTES_OCR_GEMINI_MODELS=gemini-2.5-flash,gemini-2.0-flash,gemini-2.5-flash-lite,gemini-3.1-flash-lite
+# export ZOOM_NOTES_GEMINI_MODELS=gemini-2.5-flash,gemini-2.0-flash,gemini-2.5-flash-lite,gemini-3.1-flash-lite
+# export POLISH_GEMINI_MODELS=gemini-2.5-flash-lite,gemini-3.1-flash-lite,gemini-2.0-flash,gemini-2.5-flash
+
 export GEMINI_POLISH=1
 
 # Optional: pin specific PortAudio device indices for zoom-notes. Leave unset for auto.

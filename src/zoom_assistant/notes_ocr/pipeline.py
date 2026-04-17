@@ -40,11 +40,19 @@ _ASSETS_DIRNAME = "assets"
 _NOTES_FILENAME = "notes.md"
 
 
-def process_folder(folder: NoteFolder, client: GeminiClient) -> None:
+def process_folder(
+    folder: NoteFolder,
+    *,
+    ocr_client: GeminiClient,
+    polish_client: GeminiClient | None,
+) -> None:
     """OCR every image in `folder` and append sections to its notes.md.
 
-    Creates `notes/` and `notes/assets/` under the folder as needed. notes.md
-    is opened in append mode so repeated runs accumulate sections.
+    `ocr_client` runs the structured OCR call; `polish_client` runs the
+    shared polish pass on each section body. Pass `polish_client=None` to
+    skip polishing (e.g. when `GEMINI_POLISH=0`). Creates `notes/` and
+    `notes/assets/` under the folder as needed; notes.md is opened in
+    append mode so repeated runs accumulate sections.
     """
     notes_dir = folder.path / _NOTES_DIRNAME
     assets_dir = notes_dir / _ASSETS_DIRNAME
@@ -52,18 +60,23 @@ def process_folder(folder: NoteFolder, client: GeminiClient) -> None:
     assets_dir.mkdir(parents=True, exist_ok=True)
     with (notes_dir / _NOTES_FILENAME).open("a", encoding="utf-8") as fp:
         for image_path in folder.images:
-            note = _ocr_single_image(image_path, assets_dir, client)
+            note = _ocr_single_image(image_path, assets_dir, ocr_client, polish_client)
             fp.write(render_image_note(note))
 
 
-def _ocr_single_image(image_path: Path, assets_dir: Path, client: GeminiClient) -> ImageNote:
+def _ocr_single_image(
+    image_path: Path,
+    assets_dir: Path,
+    ocr_client: GeminiClient,
+    polish_client: GeminiClient | None,
+) -> ImageNote:
     logger.info("ocr: %s", image_path)
     image = load_image(image_path)
     part = types.Part.from_bytes(data=read_bytes(image_path), mime_type=guess_mime_type(image_path))
-    response = client.generate_structured([part, OCR_PROMPT], OcrResponse)
+    response = ocr_client.generate_structured([part, OCR_PROMPT], OcrResponse)
     _clear_stale_crops(assets_dir, image_path.stem)
     figure_links = _write_figure_crops(image, image_path, assets_dir, response.figures)
-    sections = tuple(_polish_section(s, client) for s in response.sections)
+    sections = tuple(_polish_section(s, polish_client) for s in response.sections)
     return ImageNote(
         filename=image_path.name,
         taken_at=_image_mtime(image_path),
@@ -72,8 +85,9 @@ def _ocr_single_image(image_path: Path, assets_dir: Path, client: GeminiClient) 
     )
 
 
-def _polish_section(section: OcrSection, client: GeminiClient) -> Section:
-    return Section(heading=_to_heading(section), body=client.polish(section.body))
+def _polish_section(section: OcrSection, polish_client: GeminiClient | None) -> Section:
+    body = polish_client.polish(section.body) if polish_client else section.body
+    return Section(heading=_to_heading(section), body=body)
 
 
 def _to_heading(section: OcrSection) -> Heading | None:

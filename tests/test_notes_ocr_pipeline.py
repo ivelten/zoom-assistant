@@ -43,7 +43,8 @@ class TestProcessFolder:
 
         process_folder(
             NoteFolder(path=tmp_path, images=(image_path,)),
-            cast(GeminiClient, stub),
+            ocr_client=cast(GeminiClient, stub),
+            polish_client=cast(GeminiClient, stub),
         )
 
         notes_md = (tmp_path / "notes" / "notes.md").read_text()
@@ -59,9 +60,11 @@ class TestProcessFolder:
             figures=[OcrFigure(x0=0.1, y0=0.1, x1=0.5, y1=0.5, caption="Diagram A")],
         )
 
+        stub = _StubClient(response)
         process_folder(
             NoteFolder(path=tmp_path, images=(image_path,)),
-            cast(GeminiClient, _StubClient(response)),
+            ocr_client=cast(GeminiClient, stub),
+            polish_client=cast(GeminiClient, stub),
         )
 
         crop_file = tmp_path / "notes" / "assets" / "photo-crop-1.png"
@@ -76,9 +79,11 @@ class TestProcessFolder:
             figures=[OcrFigure(x0=0.0, y0=0.0, x1=1.0, y1=1.0)],
         )
 
+        stub = _StubClient(response)
         process_folder(
             NoteFolder(path=tmp_path, images=(image_path,)),
-            cast(GeminiClient, _StubClient(response)),
+            ocr_client=cast(GeminiClient, stub),
+            polish_client=cast(GeminiClient, stub),
         )
 
         notes_md = (tmp_path / "notes" / "notes.md").read_text()
@@ -92,9 +97,11 @@ class TestProcessFolder:
         notes_md_path.parent.mkdir()
         notes_md_path.write_text("EXISTING CONTENT\n")
 
+        stub = _StubClient(response)
         process_folder(
             NoteFolder(path=tmp_path, images=(image_path,)),
-            cast(GeminiClient, _StubClient(response)),
+            ocr_client=cast(GeminiClient, stub),
+            polish_client=cast(GeminiClient, stub),
         )
 
         contents = notes_md_path.read_text()
@@ -112,9 +119,11 @@ class TestProcessFolder:
             sections=[],
             figures=[OcrFigure(x0=0.0, y0=0.0, x1=0.5, y1=0.5)],
         )
+        stub = _StubClient(response)
         process_folder(
             NoteFolder(path=tmp_path, images=(image_path,)),
-            cast(GeminiClient, _StubClient(response)),
+            ocr_client=cast(GeminiClient, stub),
+            polish_client=cast(GeminiClient, stub),
         )
 
         assert not stale.exists()
@@ -130,9 +139,29 @@ class TestProcessFolder:
 
         process_folder(
             NoteFolder(path=tmp_path, images=(image_path,)),
-            cast(GeminiClient, stub),
+            ocr_client=cast(GeminiClient, stub),
+            polish_client=cast(GeminiClient, stub),
         )
 
         notes_md = (tmp_path / "notes" / "notes.md").read_text()
         assert "PLAIN PROSE" in notes_md
         assert "## " not in notes_md
+
+    def test_polish_client_none_skips_polish(self, tmp_path: Path) -> None:
+        image_path = _make_image(tmp_path / "photo.png")
+        response = OcrResponse(
+            sections=[OcrSection(body="raw body text")],
+            figures=[],
+        )
+        stub = _StubClient(response)
+
+        process_folder(
+            NoteFolder(path=tmp_path, images=(image_path,)),
+            ocr_client=cast(GeminiClient, stub),
+            polish_client=None,
+        )
+
+        notes_md = (tmp_path / "notes" / "notes.md").read_text()
+        assert "raw body text" in notes_md
+        assert "RAW BODY TEXT" not in notes_md
+        assert stub.polish_calls == []

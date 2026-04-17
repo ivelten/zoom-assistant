@@ -26,18 +26,26 @@ All knobs are environment variables loaded by direnv from `.envrc`. `src/zoom_as
 
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
-| `GEMINI_API_KEY` | yes | — | Auth token for the Gemini API. |
-| `GEMINI_MODELS` | no | `gemini-2.5-flash,gemini-2.0-flash` | Comma-separated model IDs in **priority order**. Every Gemini call tries the first model; on a retryable failure, the client falls through to the next. If every model fails, the call errors. |
-| `GEMINI_POLISH` | no | `1` | `1` enables the post-OCR / post-transcription polish pass (see each executable and [Polish pass](#polish-pass)). Set to `0` to skip it. |
+| `NOTES_OCR_GEMINI_API_KEY` | iff running `notes-ocr` | — | Auth token for the image OCR calls. |
+| `ZOOM_NOTES_GEMINI_API_KEY` | iff running `zoom-notes` | — | Auth token for the audio transcription calls. |
+| `POLISH_GEMINI_API_KEY` | iff `GEMINI_POLISH=1` | — | Auth token for the shared polish pass (used by both tools). |
+| `NOTES_OCR_GEMINI_MODELS` | no | `gemini-2.5-flash,gemini-2.0-flash,gemini-2.5-flash-lite,gemini-3.1-flash-lite` | Model-fallback chain for image OCR. Quality-first. |
+| `ZOOM_NOTES_GEMINI_MODELS` | no | `gemini-2.5-flash,gemini-2.0-flash,gemini-2.5-flash-lite,gemini-3.1-flash-lite` | Model-fallback chain for audio transcription. Quality-first. |
+| `POLISH_GEMINI_MODELS` | no | `gemini-2.5-flash-lite,gemini-3.1-flash-lite,gemini-2.0-flash,gemini-2.5-flash` | Model-fallback chain for the shared polish pass. Cost-first — polish is text-only and high-volume. |
+| `GEMINI_POLISH` | no | `1` | `1` enables the post-OCR / post-transcription polish pass (see each executable and [Polish pass](#polish-pass)). Set to `0` to skip it; `POLISH_GEMINI_API_KEY` / `POLISH_GEMINI_MODELS` then aren't required. |
 | `ZOOM_NOTES_MIC_DEVICE` | no | auto | Optional PortAudio input index for the microphone. |
 | `ZOOM_NOTES_LOOPBACK_DEVICE` | no | auto | Optional PortAudio input index for the system-audio loopback. |
+
+**Model-chain semantics** (applies to all three `*_GEMINI_MODELS` vars): comma-separated model IDs in **priority order**. Every Gemini call tries the first model; on a retryable failure, the client falls through to the next. If every model fails, the call errors.
+
+**Why per-purpose keys and chains?** Each of OCR / transcription / polish is a distinct Gemini usage pattern with different token/quota characteristics. Splitting lets you (a) monitor usage per purpose in the Google Cloud console and (b) tune model quality/cost per purpose — e.g. polish can run on cheaper Lite variants since it's text-only and high-volume, while OCR and transcription default to Flash for quality. `Config.for_notes_ocr()` and `Config.for_zoom_notes()` are tool-scoped factories; each only requires the key + chain relevant to the invoked tool (plus polish when enabled).
 
 **Retryable failures** (fall through to next model): HTTP 401/403 (auth token expired or revoked), 429 (rate limit or quota exhausted), 500/502/503/504 (server), connection errors. **Non-retryable**: HTTP 400 (invalid request — the same payload would fail on every model). Each call starts a fresh traversal of the chain; there is no cooldown timer — the chain's whole purpose is to keep working when one key/model is saturated.
 
 ### Bootstrap
 
 ```bash
-cp .envrc.example .envrc && direnv allow   # fill in GEMINI_API_KEY first
+cp .envrc.example .envrc && direnv allow   # fill in the Gemini keys first
 uv sync                                    # installs runtime + dev deps into .venv
 ```
 
@@ -236,7 +244,7 @@ pytest
 
 ## Secrets
 
-`GEMINI_API_KEY` is read from the environment via direnv from `.envrc`. `src/zoom_assistant/config.py` must fail fast with a clear message if the variable is unset. Never hard-code the key. Never commit `.envrc`.
+The three per-purpose Gemini keys (`NOTES_OCR_GEMINI_API_KEY`, `ZOOM_NOTES_GEMINI_API_KEY`, `POLISH_GEMINI_API_KEY`) are read from the environment via direnv from `.envrc`. `src/zoom_assistant/config.py` must fail fast with a clear message when a required key is missing — required means "the primary key for the tool being invoked, plus `POLISH_GEMINI_API_KEY` iff `GEMINI_POLISH=1`". Never hard-code keys. Never commit `.envrc`.
 
 ## Conventions for Claude
 
@@ -292,7 +300,8 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 - Screen-change detection in-process using `imagehash.phash` over `mss` frames.
 - Host OS: macOS primary, Windows and Linux supported first-class.
 - Gemini SDK: `google-genai` (the unified replacement for `google-generativeai`).
-- **Model fallback chain** (`GEMINI_MODELS`): comma-separated priority list; auth / rate-limit / server / network failures fall through, 400s hard-fail. Covers token/quota expiry mid-session.
+- **Per-purpose Gemini API keys and model chains**: `NOTES_OCR_GEMINI_API_KEY`+`NOTES_OCR_GEMINI_MODELS`, `ZOOM_NOTES_GEMINI_API_KEY`+`ZOOM_NOTES_GEMINI_MODELS`, `POLISH_GEMINI_API_KEY`+`POLISH_GEMINI_MODELS` — one pair per distinct usage pattern so billing/quota can be monitored *and* quality/cost tuned per purpose (primary chains default quality-first; polish defaults cost-first). `Config.for_notes_ocr()` and `Config.for_zoom_notes()` factories only require the pair(s) relevant to the invoked tool. `GeminiClient` takes one key + one model chain; the pipeline constructs one client per purpose.
+- **Model fallback semantics**: comma-separated priority list; auth / rate-limit / server / network failures fall through, 400s hard-fail. Covers token/quota expiry mid-session. Applies to all three `*_GEMINI_MODELS` vars.
 - **Schema-validation failures** in OCR calls: retry once on the *same* model with a stricter prompt; if still invalid, fall through to the next model in the chain. No separate `2.5-pro` escalation path.
 - **Polish pass** (`GEMINI_POLISH=1` by default): every OCR body and every transcript chunk is reformatted by a strict "punctuation and paragraphs only" Gemini prompt with a ≤2% word-count guardrail; content is never changed.
 - **`notes-ocr` output format**: ATX headings, no YAML frontmatter; `notes.md` is **append-only** (no `.bak`). Per-image section: `---` / `# <original-filename>` / `*<image-mtime ISO-8601 with tz>*` / Gemini headings + polished body / asset links.
